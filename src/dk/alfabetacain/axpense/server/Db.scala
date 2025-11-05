@@ -6,6 +6,9 @@ import dk.alfabetacain.axpense.shared.Expense
 import cats.effect.kernel.Ref
 import cats.effect.kernel.Resource
 import dk.alfabetacain.axpense.shared.Category
+import dk.alfabetacain.axpense.server.events.EventPublisher
+import dk.alfabetacain.axpense.server.events.EventHandler
+import dk.alfabetacain.axpense.server.events.Event
 
 trait Db {
   def addExpense(expense: Expense): IO[Expense]
@@ -14,7 +17,11 @@ trait Db {
   def addCategory(category: Category): IO[Unit]
 }
 
-private final class InMemoryDb(ref: Ref[IO, List[Expense]], categories: Ref[IO, List[Category]]) extends Db {
+private final class InMemoryDb(
+    ref: Ref[IO, List[Expense]],
+    categories: Ref[IO, List[Category]],
+    eventPublisher: EventPublisher,
+) extends Db {
 
   override def addExpense(expense: Expense): IO[Expense] = {
     ref.update(expense :: _)
@@ -30,19 +37,19 @@ private final class InMemoryDb(ref: Ref[IO, List[Expense]], categories: Ref[IO, 
   }
 
   override def addCategory(category: Category): IO[Unit] = {
-    categories.update(category :: _)
+    categories.update(category :: _) >> eventPublisher.publish(Event.CategoriesUpdated)
   }
 
 }
 
 object Db {
 
-  def makeInMemory(): Resource[IO, Db] = {
+  def makeInMemory(eventPublisher: EventPublisher): Resource[IO, Db] = {
     Resource.eval(
       (
         Ref.of[IO, List[Expense]](List.empty),
         Ref.of[IO, List[Category]](List.empty),
       ).tupled,
-    ).map { (expenses, categories) => new InMemoryDb(expenses, categories) }
+    ).map { (expenses, categories) => new InMemoryDb(expenses, categories, eventPublisher) }
   }
 }

@@ -6,6 +6,7 @@ import cats.effect.ExitCode
 import cats.effect.IO
 import dk.alfabetacain.axpense.shared.Category
 import cats.effect.kernel.Resource
+import dk.alfabetacain.axpense.server.events.EventHandler
 
 object Main extends IOApp {
 
@@ -24,9 +25,10 @@ object Main extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] = {
     val resources = for {
-      db <- Db.makeInMemory()
-      _  <- Resource.eval(seedDb(db))
-      _  <- HttpServer.make(db)
+      eventHandler <- EventHandler.make()
+      db           <- Db.makeInMemory(eventHandler)
+      _            <- Resource.eval(seedDb(db))
+      _            <- HttpServer.make(db, eventHandler)
     } yield ()
 
     resources.useForever

@@ -1,22 +1,24 @@
 package dk.alfabetacain.axpense.client
 
-import scala.concurrent.duration.*
-import fs2.Stream
 import calico.*
-import calico.html.io.{ *, given }
-import calico.syntax.*
 import calico.IOWebApp
-import fs2.dom.HtmlElement
+import calico.html.io.{ *, given }
 import cats.effect.IO
-import cats.effect.kernel.Resource
-import fs2.concurrent.SignallingRef
-import dk.alfabetacain.axpense.shared.Amount
-import cats.syntax.all.*
-import sttp.model.Uri
-import dk.alfabetacain.axpense.shared.Category
-import dk.alfabetacain.axpense.shared.Expense
 import cats.effect.kernel.Clock
+import cats.effect.kernel.Resource
+import cats.syntax.all.*
+import dk.alfabetacain.axpense.client.UI.StringMapper
+import dk.alfabetacain.axpense.shared.Amount
+import dk.alfabetacain.axpense.shared.Category
 import dk.alfabetacain.axpense.shared.Date
+import dk.alfabetacain.axpense.shared.Expense
+import fs2.Stream
+import fs2.concurrent.Signal
+import fs2.concurrent.SignallingRef
+import fs2.dom.HtmlElement
+import sttp.model.Uri
+
+import scala.concurrent.duration.*
 
 object Root extends IOWebApp {
 
@@ -27,15 +29,9 @@ object Root extends IOWebApp {
   }
 
   private def expenses(client: ApiClient): Resource[IO, SignallingRef[IO, List[Expense]]] = {
-    SignallingRef[IO].of(List.empty[Expense]).toResource.flatMap { signal =>
-      Stream.awakeEvery[IO](10.seconds, true)
-        .foreach { _ =>
-          client.getExpenses().flatMap(expenses => signal.set(expenses))
-        }.compile
-        .drain
-        .background
-        .as(signal)
-    }
+    SignallingRef[IO].of(List.empty[Expense]).flatMap { signal =>
+      client.getExpenses().flatMap(signal.set).as(signal)
+    }.toResource
   }
 
   private def expensesView(expenses: SignallingRef[IO, List[Expense]]): Resource[IO, HtmlElement[IO]] = {
@@ -46,7 +42,7 @@ object Root extends IOWebApp {
             input.withSelf { self =>
               (
                 readOnly := true,
-                value := List(
+                value    := List(
                   expense.description.getOrElse(""),
                   expense.category,
                   expense.subCategory,
@@ -61,51 +57,64 @@ object Root extends IOWebApp {
     )
   }
 
-  private def myForm(client: ApiClient, categories: List[Category]): Resource[IO, HtmlElement[IO]] = {
-    (
-      SignallingRef[IO].of("").toResource,
-      SignallingRef[IO].of("").toResource,
-      SignallingRef[IO].of("").toResource,
-      SignallingRef[IO].of("").toResource,
-    ).tupled.flatMap { case (description, category, subCategory, amount) =>
-      div(
-        cls := "container",
-        form(
-          UI.textField(description, "description", "description"),
-          UI.textField(category, "category", "category"),
-          UI.textField(subCategory, "sub-category", "sub-category"),
-          UI.textField(amount, "amount", "amount"),
-          div(
-            cls := "control",
-            input(
-              tpe := "submit",
-              cls := "button is-link",
-              "Submit",
+  private def myForm(client: ApiClient, categories: Signal[IO, List[Category]]): Resource[IO, HtmlElement[IO]] = {
+    given StringMapper[Double] = StringMapper.instance("number", _.toDoubleOption)
+    categories.get.toResource.flatMap { categories =>
+      (
+        SignallingRef[IO].of("").toResource,
+        SignallingRef[IO].of(categories.headOption).toResource,
+        SignallingRef[IO].of("").toResource,
+        SignallingRef[IO].of(0.0).toResource,
+      ).tupled.flatMap { case (description, category, subCategory, amount) =>
+        div(
+          cls := "container",
+          form(
+            UI.textField(description, "description", "description"),
+            UI.selectField2[Category](
+              input =>
+                category.set(Some(input)),
+              "category",
+              Signal.constant(categories.map(c => c.name -> c).toMap),
             ),
+            UI.selectField2(
+              subCategory.set,
+              "sub category",
+              Signal.mapped(category)(_.fold(Map.empty[String, String])(_.subCategories.map(v => v -> v).toMap)),
+            ),
+            UI.textField(amount, "amount", "amount"),
+            div(
+              cls := "control",
+              input(
+                tpe := "submit",
+                cls := "button is-link",
+                "Submit",
+              ),
+            ),
+            action := "javascript:void(0);",
+            onSubmit --> { event =>
+              event.foreach { _ =>
+                for {
+                  desc   <- description.get
+                  cat    <- category.get
+                  subcat <- subCategory.get
+                  am     <- amount.get
+                  now    <- clock.realTimeDate
+                  _      <- client.addExpense(
+                    Expense(
+                      Option(desc).filter(_.nonEmpty),
+                      cat.fold("")(_.name),
+                      subcat,
+                      Amount(BigDecimal(am), "DKK"),
+                      Date(now.toISOString()),
+                    ),
+                  )
+                } yield ()
+              }
+            },
           ),
-          action := "javascript:void(0);",
-          onSubmit --> { event =>
-            event.foreach { _ =>
-              for {
-                desc   <- description.get
-                cat    <- category.get
-                subcat <- subCategory.get
-                am     <- amount.get
-                now    <- clock.realTimeDate
-                _ <- client.addExpense(
-                  Expense(
-                    Option(desc).filter(_.nonEmpty),
-                    cat,
-                    subcat,
-                    Amount(BigDecimal(am), "DKK"),
-                    Date(now.toISOString()),
-                  ),
-                )
-              } yield ()
-            }
-          },
-        ),
-      )
+        )
+
+      }
     }
   }
 
@@ -126,13 +135,18 @@ object Root extends IOWebApp {
     getBaseUrl.toResource.flatMap { baseUri =>
       ApiClient.make(baseUri).flatMap { client =>
         expenses(client).flatMap { expenses =>
-          client.getCategories().toResource.flatMap { categories =>
-            div(
-              cls := "section",
-              myForm(client, categories),
-              expensesView(expenses),
-            )
-          }
+          (Stream.unit ++
+            Stream.awakeEvery[IO](10.seconds, true)
+              .map(_ => ()))
+            .evalMap(_ => client.getCategories())
+            .hold1Resource
+            .flatMap { categories =>
+              div(
+                cls := "section",
+                myForm(client, categories),
+                expensesView(expenses),
+              )
+            }
 
         }
       }

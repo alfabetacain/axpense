@@ -4,19 +4,19 @@ package build
 import mill.*, scalalib.*, scalajslib.*
 import org.typelevel.scalacoptions.*
 
-lazy val calicoVersion = "0.2.3"
-lazy val tapirVersion = "1.12.1"
-lazy val circeVersion = "0.14.15"
-lazy val http4sVersion = "0.23.32"
+lazy val calicoVersion     = "0.2.3"
+lazy val tapirVersion      = "1.12.1"
+lazy val circeVersion      = "0.14.15"
+lazy val http4sVersion     = "0.23.32"
 lazy val catsEffectVersion = "3.6.3"
-lazy val sttpVersion = "4.0.13"
+lazy val sttpVersion       = "4.0.13"
 
 trait AppScalaModule extends ScalaModule {
   def scalaVersion = "3.7.3"
 
   override def scalacOptions = Task {
     super.scalacOptions() ++ ScalacOptions.defaultTokensForVersion(
-      ScalaVersion.unsafeFromString(scalaVersion())
+      ScalaVersion.unsafeFromString(scalaVersion()),
     )
   }
 }
@@ -27,14 +27,13 @@ trait AppScalaJSModule extends AppScalaModule, ScalaJSModule {
 
 object `package` extends AppScalaModule {
 
-
   def moduleDeps = Seq(shared.jvm)
 
   def mvnDeps = Seq(
-        mvn"com.softwaremill.sttp.tapir::tapir-http4s-server:$tapirVersion",
-        mvn"io.circe::circe-parser::$circeVersion",
-        mvn"org.http4s::http4s-ember-server:$http4sVersion",
-        mvn"org.typelevel::cats-effect:$catsEffectVersion",
+    mvn"com.softwaremill.sttp.tapir::tapir-http4s-server:$tapirVersion",
+    mvn"io.circe::circe-parser::$circeVersion",
+    mvn"org.http4s::http4s-ember-server:$http4sVersion",
+    mvn"org.typelevel::cats-effect:$catsEffectVersion",
   )
 
   def resources = Task {
@@ -46,26 +45,31 @@ object `package` extends AppScalaModule {
   }
 
   object shared extends Module {
+
     trait SharedModule extends AppScalaModule, PlatformScalaModule {
+
       def mvnDeps = Seq(
         mvn"com.softwaremill.sttp.tapir::tapir-core::$tapirVersion",
         mvn"com.softwaremill.sttp.tapir::tapir-json-circe::$tapirVersion",
+        mvn"com.softwaremill.sttp.shared::fs2::1.5.0",
         mvn"io.circe::circe-core::$circeVersion",
         mvn"io.circe::circe-generic::$circeVersion",
       )
 
     }
     object jvm extends SharedModule
-    object js extends SharedModule, AppScalaJSModule
+    object js  extends SharedModule, AppScalaJSModule
   }
 
   object client extends AppScalaJSModule {
     def moduleDeps = Seq(shared.js)
+
     def mvnDeps = Seq(
       mvn"com.armanbilge::calico::$calicoVersion",
       mvn"org.typelevel::cats-effect::$catsEffectVersion",
       mvn"com.softwaremill.sttp.tapir::tapir-sttp-client4::$tapirVersion",
       mvn"com.softwaremill.sttp.client4::cats::$sttpVersion",
+      mvn"com.softwaremill.sttp.client4::fs2::$sttpVersion",
     )
   }
 }

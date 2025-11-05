@@ -12,15 +12,21 @@ import dk.alfabetacain.axpense.shared.GetExpensesResponse
 import org.http4s.HttpRoutes
 import org.http4s.server.Router
 import dk.alfabetacain.axpense.shared.GetCategoriesResponse
+import dk.alfabetacain.axpense.server.events.EventSubscriber
+import dk.alfabetacain.axpense.server.events.Event
+import sttp.model.sse.ServerSentEvent
+import sttp.tapir.server.http4s.Http4sServerSentEvents
+import sttp.tapir.server.ServerEndpoint
+import sttp.capabilities.fs2.Fs2Streams
 
 trait HttpServer {}
 
 object HttpServer {
 
-  def make(db: Db): Resource[IO, HttpServer] = {
+  def make(db: Db, eventSubscriber: EventSubscriber): Resource[IO, HttpServer] = {
     val interp = Http4sServerInterpreter[IO]()
 
-    val routes = interp.toRoutes(List(
+    val routes = interp.toRoutes(List[ServerEndpoint[Fs2Streams[IO], IO]](
       Api.addExpense.serverLogicSuccess[IO] { request =>
         db.addExpense(request.expense).map(AddExpenseResponse.apply)
       },
@@ -29,6 +35,13 @@ object HttpServer {
       },
       Api.getCategories.serverLogicSuccess[IO] { request =>
         db.getCategories().map(GetCategoriesResponse.apply)
+      },
+      Api.eventsEndpoint.serverLogicSuccess { _ =>
+        IO {
+          eventSubscriber.subscribe()
+            .map(encodeEvent)
+            .through[IO, Byte](Http4sServerSentEvents.serialiseSSEToBytes[IO])
+        }
       },
     ))
 
@@ -40,5 +53,12 @@ object HttpServer {
       .withShutdownTimeout(1.second)
       .build
       .map(_ => new HttpServer {})
+  }
+
+  private def encodeEvent(event: Event): ServerSentEvent = {
+    event match {
+      case Event.CategoriesUpdated =>
+        ServerSentEvent(data = None, eventType = Some("axpense.categories_updated"), None, None)
+    }
   }
 }

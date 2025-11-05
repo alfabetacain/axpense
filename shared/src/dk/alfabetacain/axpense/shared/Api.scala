@@ -6,6 +6,9 @@ import dk.alfabetacain.axpense.shared.GetExpensesResponse
 import dk.alfabetacain.axpense.shared.AddExpenseRequest
 import dk.alfabetacain.axpense.shared.AddExpenseResponse
 import dk.alfabetacain.axpense.shared.GetCategoriesResponse
+import sttp.model.sse.ServerSentEvent
+import cats.effect.IO
+import sttp.capabilities.fs2.Fs2Streams
 
 object Api {
 
@@ -26,5 +29,12 @@ object Api {
     .get
     .in(prefix / "categories")
     .out(customCodecJsonBody[GetCategoriesResponse])
+
+  val eventsEndpoint = endpoint
+    .get
+    .in(prefix / "events")
+    .out(
+      streamBody(Fs2Streams[IO])(Schema.derived[ServerSentEvent], CodecFormat.TextEventStream()),
+    )
 
 }

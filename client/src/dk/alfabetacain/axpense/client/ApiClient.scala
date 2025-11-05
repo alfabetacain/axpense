@@ -9,6 +9,7 @@ import sttp.tapir.client.sttp4.SttpClientInterpreter
 import dk.alfabetacain.shared.Api
 import sttp.model.Uri
 import dk.alfabetacain.axpense.shared.AddExpenseRequest
+import dk.alfabetacain.axpense.external.FetchFs2Backend
 
 trait ApiClient {
 
@@ -22,7 +23,8 @@ trait ApiClient {
 object ApiClient {
 
   def make(baseUrl: Uri): Resource[IO, ApiClient] = {
-    Resource.make(IO(FetchCatsBackend[IO]()))(_.close())
+    // Resource.make(IO(FetchCatsBackend[IO]()))(_.close())
+    FetchFs2Backend.resource[IO]()
       .map { backend =>
         val interp = SttpClientInterpreter()
 

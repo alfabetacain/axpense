@@ -30,3 +30,13 @@ final case class AddExpenseResponse(expense: Expense) derives Codec.AsObject, Sc
 final case class Category(name: String, subCategories: List[String]) derives Codec.AsObject, Schema
 
 final case class GetCategoriesResponse(categories: List[Category]) derives Codec.AsObject, Schema
+
+enum Event {
+  case CategoriesUpdated
+  case Unknown
+}
+
+object Event {
+  given Codec[Event]  = io.circe.generic.semiauto.deriveCodec
+  given Schema[Event] = Schema.derived
+}
