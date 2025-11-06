@@ -37,6 +37,7 @@ final case class GetCategoriesResponse(categories: List[Category]) derives Codec
 
 enum Event {
   case CategoriesUpdated
+  case ExpensesUpdated
   case Unknown
 }
 

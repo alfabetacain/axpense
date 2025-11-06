@@ -1,31 +1,36 @@
 package dk.alfabetacain.axpense.client
 
-import cats.effect.kernel.Resource
-import cats.effect.IO
 import calico.*
 import calico.html.io.{ *, given }
-import calico.syntax.*
-import calico.html.Html
+import cats.effect.IO
+import cats.effect.kernel.Resource
+import fs2.concurrent.Signal
 import fs2.concurrent.SignallingRef
 import fs2.dom.*
-import fs2.concurrent.Signal
 
 object UI {
 
-  trait StringMapper[A] {
-    def convert(value: String): Option[A]
+  trait OptionalIso[A, B] {
+    def from(value: A): Option[B]
+    def to(value: B): A
+  }
+
+  trait StringOptionalIso[A] extends OptionalIso[String, A] {
+    def from(value: String): Option[A]
+    def to(value: A): String
     def tpe: String
   }
 
-  object StringMapper {
+  object StringOptionalIso {
 
-    def instance[A](tpeArg: String, mapper: String => Option[A]): StringMapper[A] = {
-      new StringMapper[A] {
-        override def convert(value: String): Option[A] = mapper(value)
-        override val tpe: String                       = tpeArg
+    def instance[A](tpeArg: String, decode: String => Option[A], encode: A => String): StringOptionalIso[A] = {
+      new StringOptionalIso[A] {
+        override def from(value: String): Option[A] = decode(value)
+        override def to(value: A): String           = encode(value)
+        override val tpe: String                    = tpeArg
       }
     }
-    given StringMapper[String] = instance("text", Option.apply)
+    given StringOptionalIso[String] = instance("text", Option.apply, identity)
   }
 
   def selectField2[A](
@@ -97,7 +102,7 @@ object UI {
 
   }
 
-  def textField[A: {StringMapper as mapper}](
+  def textField[A: {StringOptionalIso as iso}](
       signal: SignallingRef[IO, A],
       labelValue: String,
       placeholderValue: String,
@@ -109,12 +114,13 @@ object UI {
         cls := "control",
         input.withSelf { self =>
           (
-            cls         := "input",
-            tpe         := mapper.tpe,
+            cls := "input",
+            tpe := iso.tpe,
+            value <-- signal.map(iso.to),
             placeholder := placeholderValue,
             onInput --> (_.foreach(_ =>
               self.value.get.flatMap { value =>
-                mapper.convert(value).fold(IO.unit)(signal.set)
+                iso.from(value).fold(IO.unit)(signal.set)
               },
             )),
           )

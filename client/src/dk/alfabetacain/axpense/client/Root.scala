@@ -8,7 +8,7 @@ import cats.effect.IO
 import cats.effect.kernel.Clock
 import cats.effect.kernel.Resource
 import cats.syntax.all.*
-import dk.alfabetacain.axpense.client.UI.StringMapper
+import dk.alfabetacain.axpense.client.UI.StringOptionalIso
 import dk.alfabetacain.axpense.shared.Amount
 import dk.alfabetacain.axpense.shared.Category
 import dk.alfabetacain.axpense.shared.Date
@@ -19,8 +19,7 @@ import fs2.concurrent.SignallingRef
 import fs2.dom.HtmlElement
 import sttp.model.Uri
 import calico.frp.given
-
-import scala.concurrent.duration.*
+import dk.alfabetacain.axpense.shared.Event
 
 object Root extends IOWebApp {
 
@@ -36,31 +35,34 @@ object Root extends IOWebApp {
     }.toResource
   }
 
-  private def expensesView(expenses: SignallingRef[IO, List[Expense]]): Resource[IO, HtmlElement[IO]] = {
+  private def renderExpenses(expenses: Signal[IO, List[Expense]]): Resource[IO, HtmlElement[IO]] = {
     div(
-      children <-- expenses.map { expenses =>
-        expenses.map { expense =>
-          div(
-            input.withSelf { self =>
-              (
-                readOnly := true,
-                value    := List(
+      cls := "fixed-grid",
+      div(
+        cls := "grid has-2-cols",
+        children <-- expenses.map { expenses =>
+          expenses.map { expense =>
+            div(
+              cls := "cell has-text-centered is-col-span-2",
+              span(
+                // cls := "input",
+                List(
                   expense.description.getOrElse(""),
                   expense.category,
                   expense.subCategory,
                   expense.amount.value.toString(),
                   expense.amount.currency,
                 ).mkString(" - "),
-              )
-            },
-          )
-        }
-      },
+              ),
+            )
+          }
+        },
+      ),
     )
   }
 
   private def myForm(client: ApiClient, categories: Signal[IO, List[Category]]): Resource[IO, HtmlElement[IO]] = {
-    given StringMapper[Double] = StringMapper.instance("number", _.toDoubleOption)
+    given StringOptionalIso[Double] = StringOptionalIso.instance("number", _.toDoubleOption, _.toString)
     categories.getAndDiscreteUpdates.flatMap { (currentCategories, categoryUpdates) =>
       (
         SignallingRef[IO].of("").toResource,
@@ -145,19 +147,26 @@ object Root extends IOWebApp {
         val eventsStream = Stream.eval(client.getEvents()).flatten
         println("event stream ready")
 
-        expenses(client).flatMap { expenses =>
-          (Stream(()) ++ eventsStream.void)
-            .evalMap(_ => client.getCategories())
-            .hold1Resource
-            .flatMap { categories =>
+        val expensesStream = Stream.eval(client.getExpenses()) ++ eventsStream
+          .filter(_ == Event.ExpensesUpdated)
+          .evalMap(_ => client.getExpenses())
+
+        val categoriesStream = Stream.eval(client.getCategories()) ++ eventsStream
+          .filter(_ == Event.CategoriesUpdated)
+          .evalMap(_ => client.getCategories())
+
+        (expensesStream.hold1Resource, categoriesStream.hold1Resource)
+          .parTupled
+          .flatMap { (expenses, categories) =>
+            div(
               div(
                 cls := "section",
                 myForm(client, categories),
-                expensesView(expenses),
-              )
-            }
+              ),
+              div(cls := "section", renderExpenses(expenses)),
+            )
+          }
 
-        }
       }
     }
   }

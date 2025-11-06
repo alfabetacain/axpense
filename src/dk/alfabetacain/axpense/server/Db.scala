@@ -26,6 +26,7 @@ private final class InMemoryDb(
   override def addExpense(expense: Expense): IO[Expense] = {
     ref.update(expense :: _)
       .as(expense)
+      .flatTap(_ => eventPublisher.publish(Event.ExpensesUpdated))
   }
 
   override def getExpenses(): IO[List[Expense]] = {
