@@ -29,7 +29,7 @@ object UI {
   }
 
   def selectField2[A](
-      set: A => IO[Unit],
+      signal: SignallingRef[IO, A],
       labelValue: String,
       options: Signal[IO, Map[String, A]],
   ): Resource[IO, HtmlDivElement[IO]] = {
@@ -46,14 +46,17 @@ object UI {
                 self.value.get.flatMap { value =>
                   for {
                     opts <- options.get
-                    _    <- opts.get(value).fold(IO.unit)(set)
+                    _    <- opts.get(value).fold(IO.unit)(signal.set)
                   } yield ()
                 },
               )),
               children <-- options.map { opts =>
                 opts.toList.map {
                   (key, _) =>
-                    option(key)
+                    option(
+                      selected <-- signal.map(v => opts.get(key) == Some(v)),
+                      key,
+                    )
                 }
               },
             )

@@ -1,5 +1,6 @@
 package dk.alfabetacain.axpense.server.events
 
+import dk.alfabetacain.axpense.shared.Event
 import fs2.Stream
 import cats.effect.IO
 import fs2.concurrent.Topic
@@ -14,10 +15,6 @@ trait EventSubscriber {
 }
 
 trait EventHandler extends EventPublisher with EventSubscriber {}
-
-enum Event {
-  case CategoriesUpdated
-}
 
 private final class EventHandlerImpl(topic: Topic[IO, Event]) extends EventHandler {
 

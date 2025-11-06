@@ -8,7 +8,7 @@ import cats.effect.kernel.Resource
 import dk.alfabetacain.axpense.shared.Category
 import dk.alfabetacain.axpense.server.events.EventPublisher
 import dk.alfabetacain.axpense.server.events.EventHandler
-import dk.alfabetacain.axpense.server.events.Event
+import dk.alfabetacain.axpense.shared.Event
 
 trait Db {
   def addExpense(expense: Expense): IO[Expense]

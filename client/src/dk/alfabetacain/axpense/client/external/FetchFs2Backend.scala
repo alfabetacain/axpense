@@ -21,6 +21,8 @@ import cats.effect.kernel.Resource
 import scala.scalajs.js.typedarray.*
 import org.scalajs.dom.ReadableStream
 import fs2.Chunk
+import fs2.concurrent.Signal
+import cats.effect.kernel.Deferred
 
 class FetchFs2Backend[F[_]: Async] private (fetchOptions: FetchOptions, customizeRequest: FetchRequest => FetchRequest)
     extends AbstractFetchBackend[F, Fs2Streams[F]](fetchOptions, customizeRequest, new CatsMonadAsyncError)
@@ -29,28 +31,44 @@ class FetchFs2Backend[F[_]: Async] private (fetchOptions: FetchOptions, customiz
   override val streams: Streams[Fs2Streams[F]] = Fs2Streams[F]
 
   override protected def addCancelTimeoutHook[T](result: F[T], cancel: () => Unit, cleanup: () => Unit): F[T] = {
-    result.onCancel(Async[F].delay(cancel())).guarantee(Async[F].delay(cleanup()))
+    println("addCancelTimeoutHook")
+    result.map { v => println(s"doing something with $v"); v }.onCancel(Async[F].delay(cancel())).guarantee(
+      Async[F].delay(cleanup()),
+    )
   }
 
   override protected def compileWebSocketPipe(
       ws: WebSocket[F],
       pipe: streams.Pipe[Data[_], WebSocketFrame],
   ): F[Unit] = {
+    println("compileWebSocketPipe")
     ???
   }
 
   override protected def handleResponseAsStream(response: FetchResponse)
       : F[(streams.BinaryStream, () => F[Unit])] = {
-    Async[F].delay {
+    println("handleResponseAsStream")
+    Deferred[F, Either[Throwable, Unit]].map { deferred =>
       lazy val reader = response.body.getReader()
       def read()      = Async[F].fromFuture(Async[F].delay(reader.read().toFuture))
 
-      // unfold something something
+      val stream = Stream.unfoldChunkEval(()) { case () =>
+        read()
+          .map { chunk =>
+            if (chunk.done) {
+              Option.empty
+            } else {
+              val bytes = new Int8Array(chunk.value.buffer).toArray
+              Option((Chunk.array(bytes), ()))
+            }
+          }
+      }.interruptWhen(deferred)
+      (stream.asInstanceOf[streams.BinaryStream], () => deferred.complete(Right(())).void)
     }
-    ???
   }
 
   override protected def handleStreamBody(s: streams.BinaryStream): F[js.UndefOr[BodyInit]] = {
+    println("handleStreamBody")
     s
       .asInstanceOf[Stream[F, Byte]]
       .chunks

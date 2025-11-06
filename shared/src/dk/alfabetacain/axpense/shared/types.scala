@@ -1,6 +1,7 @@
 package dk.alfabetacain.axpense.shared
 
 import io.circe.Codec
+import io.circe.derivation.Configuration
 import sttp.tapir.Schema
 
 final case class Amount(
@@ -29,6 +30,9 @@ final case class AddExpenseResponse(expense: Expense) derives Codec.AsObject, Sc
 
 final case class Category(name: String, subCategories: List[String]) derives Codec.AsObject, Schema
 
+final case class AddCategoryRequest(category: Category) derives Codec.AsObject, Schema
+final case class AddCategoryResponse(category: Category) derives Codec.AsObject, Schema
+
 final case class GetCategoriesResponse(categories: List[Category]) derives Codec.AsObject, Schema
 
 enum Event {
@@ -37,6 +41,9 @@ enum Event {
 }
 
 object Event {
-  given Codec[Event]  = io.circe.generic.semiauto.deriveCodec
+
+  private given Configuration = Configuration.default.withDiscriminator("_type")
+    .withTransformConstructorNames(_.toLowerCase())
+  given Codec[Event]  = Codec.AsObject.derivedConfigured
   given Schema[Event] = Schema.derived
 }
