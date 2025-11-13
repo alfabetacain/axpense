@@ -12,6 +12,7 @@ export default defineConfig({
       }
     ]
   },
+  base: '/alfabetacain/',
   server: {
     port: 5173,
     proxy: {
