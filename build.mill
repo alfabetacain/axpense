@@ -105,7 +105,7 @@ object `package` extends AppScalaModule {
       if (isGithubPages) {
         val indexHtmlLines = os.read.lines(indexHtmlPath)
           .flatMap { line =>
-            if (line.contains("<body>")) {
+            if (line.contains("<head>")) {
               List(line, """<script type="javascript">val isGithubPages = true;</script>""")
             } else {
               List(line)
