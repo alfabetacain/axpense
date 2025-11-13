@@ -1,3 +1,8 @@
+on:
+  push:
+    branches:
+      - main
+      - master
 jobs:
   # Build job
   build:
