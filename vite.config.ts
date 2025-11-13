@@ -12,7 +12,7 @@ export default defineConfig({
       }
     ]
   },
-  base: '/alfabetacain/',
+  base: '/axpense/',
   server: {
     port: 5173,
     proxy: {
