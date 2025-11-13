@@ -9,6 +9,11 @@ jobs:
     # Specify runner +  build & upload the static files as an artifact
     runs-on: ubuntu-latest
     steps:
+      - name: checkout code
+        id: checkout
+        uses:
+          actions/checkout@v5
+
       - name: Build static files
         id: build
         run: |
