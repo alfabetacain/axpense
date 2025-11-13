@@ -2,6 +2,7 @@
 package build
 
 import mill.*, scalalib.*, scalajslib.*
+import os.Path
 import org.typelevel.scalacoptions.*
 
 lazy val calicoVersion     = "0.2.3"
@@ -71,5 +72,61 @@ object `package` extends AppScalaModule {
       mvn"com.softwaremill.sttp.client4::cats::$sttpVersion",
       mvn"com.softwaremill.sttp.client4::fs2::$sttpVersion",
     )
+  }
+
+  def indexHtmlSrc   = Task.Source("index.html")
+  def mainJsSrc      = Task.Source("main.js")
+  def packageJsonSrc = Task.Source("package.json")
+  def viteConfigSrc  = Task.Source("vite.config.ts")
+
+  trait WebsiteModule extends Module {
+
+    def isGithubPages: Boolean
+
+    def buildSite = Task {
+      val indexHtmlPath  = Task.dest / "index.html"
+      val viteConfigPath = Task.dest / "vite.config.ts"
+      os.copy(indexHtmlSrc().path, indexHtmlPath)
+      os.copy(mainJsSrc().path, Task.dest / "main.js")
+      os.copy(packageJsonSrc().path, Task.dest / "package.json")
+      os.copy(viteConfigSrc().path, viteConfigPath)
+      os.copy(client.fullLinkJS().dest.path, Task.dest / "src")
+
+      val viteConfigLines = os.read.lines(viteConfigPath)
+        .map { line =>
+          if (line.trim().startsWith("replacement:")) {
+            """replacement: `src/$1`"""
+          } else {
+            line
+          }
+        }
+      os.write.over(viteConfigPath, viteConfigLines.mkString("\n"))
+
+      if (isGithubPages) {
+        val indexHtmlLines = os.read.lines(indexHtmlPath)
+          .flatMap { line =>
+            if (line.contains("<body>")) {
+              List(line, """<script type="javascript">val isGithubPages = true;</script>""")
+            } else {
+              List(line)
+            }
+          }
+
+        os.write.over(indexHtmlPath, indexHtmlLines.mkString("\n"))
+
+      }
+
+      os.call(("npm", "install"))
+      os.call(("npx", "vite", "build"))
+    }
+
+  }
+
+  object website extends WebsiteModule {
+    override val isGithubPages: Boolean = false
+  }
+
+  object ghpages extends WebsiteModule {
+    override val isGithubPages: Boolean = true
   }
 }

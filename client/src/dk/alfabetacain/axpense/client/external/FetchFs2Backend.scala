@@ -52,6 +52,19 @@ class FetchFs2Backend[F[_]: Async] private (fetchOptions: FetchOptions, customiz
       lazy val reader = response.body.getReader()
       def read()      = Async[F].fromFuture(Async[F].delay(reader.read().toFuture))
 
+      val cancel = Async[F].async[Unit] { callback =>
+        Async[F].delay {
+          reader.cancel("Response body reader cancelled").`then`(
+            res => callback(Right(res)),
+            {
+              case err: Throwable =>
+                callback(Left(err))
+              case other =>
+                callback(Left(scalajs.js.JavaScriptException(other)))
+            },
+          )
+        }.as(None)
+      }
       val stream = Stream.unfoldChunkEval(()) { case () =>
         read()
           .map { chunk =>
@@ -62,7 +75,7 @@ class FetchFs2Backend[F[_]: Async] private (fetchOptions: FetchOptions, customiz
               Option((Chunk.array(bytes), ()))
             }
           }
-      }.interruptWhen(deferred)
+      }.onComplete(Stream.eval_(cancel))
       (stream.asInstanceOf[streams.BinaryStream], () => deferred.complete(Right(())).void)
     }
   }
