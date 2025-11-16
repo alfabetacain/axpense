@@ -73,7 +73,7 @@ object ApiClient {
   def make(window: Window[IO]): Resource[IO, ApiClient] = {
     Try(scalajs.js.Dynamic.global.isGithubPages)
       .toOption
-      .forall(_ == null) match {
+      .exists(_ != null) match {
       case true =>
         IO.println("making in memory").toResource >>
           makeInMemory()

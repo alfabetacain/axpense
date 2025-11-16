@@ -1,5 +1,8 @@
 package dk.alfabetacain.axpense.client
 
+import frontroute.*
+import frontroute.given
+import dk.alfabetacain.axpense.client.Util.*
 import calico.*
 import calico.html.io.{ *, given }
 import cats.effect.IO
@@ -33,7 +36,73 @@ object UI {
     given StringOptionalIso[String] = instance("text", Option.apply, identity)
   }
 
-  def selectField2[A](
+  def navbar(): Resource[IO, HtmlElement[IO]] = {
+    navTag(
+      cls        := "navbar",
+      role       := List("navigation"),
+      aria.label := "main navigation",
+      div(
+        cls := "navbar-brand",
+        a(
+          cls  := "navbar-item",
+          href := ".",
+        ),
+        a(
+          role               := List("button"),
+          cls                := "navbar-burger",
+          aria.label         := "menu",
+          aria.expanded      := false,
+          dataAttr("target") := "navbar",
+        ),
+      ),
+      div(
+        idAttr := "navbar",
+        cls    := "navbar-menu",
+        div(
+          cls := "navbar-start",
+          a(
+            cls := "navbar-item",
+            "Home",
+          ),
+          a(
+            cls  := "navbar-item",
+            href := Pages.expenses,
+            "Expenses",
+          ),
+          a(
+            cls  := "navbar-item",
+            href := Pages.addExpense,
+            "Add expense",
+          ),
+          a(
+            cls  := "navbar-item",
+            href := Pages.addExpenseMobile,
+            "Add expense - mobile",
+            // onClick --> { _.foreach(_ => BrowserNavigation.pushState(url = "/add-expense")) },
+          ),
+        ),
+        div(
+          cls := "navbar-end",
+          div(
+            cls := "navbar-item",
+            div(
+              cls := "buttons",
+              a(
+                cls := "button is-primary",
+                "Sign up",
+              ),
+              a(
+                cls := "button is-light",
+                "Log in",
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+  }
+
+  def selectField[A](
       update: A => IO[Unit],
       currentValue: Signal[IO, A],
       labelValue: String,
@@ -74,31 +143,31 @@ object UI {
 
   }
 
-  def selectField(
-      signal: SignallingRef[IO, String],
+  def textField2[A: {StringOptionalIso as iso}](
+      signal: SignallingRef[IO, A],
       labelValue: String,
-      options: List[String],
+      placeholderValue: String,
+      doAutofocus: Signal[IO, Boolean],
   ): Resource[IO, HtmlDivElement[IO]] = {
     div(
       cls := "field",
-      label(labelValue, cls := "label"),
+      label(labelValue + " ", cls := "label"),
       div(
         cls := "control",
-        div(
-          cls := "select",
-          select.withSelf { self =>
-            (
-              onChange --> (_.foreach(_ =>
-                self.value.get.flatMap { value =>
-                  signal.set(value)
-                },
-              )),
-              options.map { opt =>
-                option(opt)
+        input.withSelf { self =>
+          (
+            cls := "input",
+            tpe := iso.tpe,
+            autoFocus <-- doAutofocus,
+            value <-- signal.map(iso.to),
+            placeholder := placeholderValue,
+            onInput --> (_.foreach(_ =>
+              self.value.get.flatMap { value =>
+                iso.from(value).fold(IO.unit)(signal.set)
               },
-            )
-          },
-        ),
+            )),
+          )
+        },
       ),
     )
 

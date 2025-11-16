@@ -1,5 +1,6 @@
 package dk.alfabetacain.axpense.server
 
+import io.odin.*
 import cats.syntax.all.*
 import cats.effect.IOApp
 import cats.effect.ExitCode
@@ -24,11 +25,12 @@ object Main extends IOApp {
   }
 
   override def run(args: List[String]): IO[ExitCode] = {
+    val log       = consoleLogger[IO]()
     val resources = for {
       eventHandler <- EventHandler.make()
       db           <- Db.makeInMemory(eventHandler)
       _            <- Resource.eval(seedDb(db))
-      _            <- HttpServer.make(db, eventHandler)
+      _            <- HttpServer.make(log, db, eventHandler)
     } yield ()
 
     resources.useForever

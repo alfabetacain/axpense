@@ -1,32 +1,48 @@
 package dk.alfabetacain.axpense.server
 
-import io.circe.syntax.*
-import scala.concurrent.duration.*
-import com.comcast.ip4s.*
-import cats.effect.kernel.Resource
 import cats.effect.IO
-import org.http4s.ember.server.EmberServerBuilder
-import sttp.tapir.server.http4s.Http4sServerInterpreter
-import dk.alfabetacain.shared.Api
-import dk.alfabetacain.axpense.shared.AddExpenseResponse
-import dk.alfabetacain.axpense.shared.GetExpensesResponse
-import org.http4s.HttpRoutes
-import org.http4s.server.Router
-import dk.alfabetacain.axpense.shared.GetCategoriesResponse
+import cats.effect.kernel.Resource
+import com.comcast.ip4s.*
 import dk.alfabetacain.axpense.server.events.EventSubscriber
-import dk.alfabetacain.axpense.shared.Event
-import sttp.model.sse.ServerSentEvent
-import sttp.tapir.server.http4s.Http4sServerSentEvents
-import sttp.tapir.server.ServerEndpoint
-import sttp.capabilities.fs2.Fs2Streams
 import dk.alfabetacain.axpense.shared.AddCategoryResponse
+import dk.alfabetacain.axpense.shared.AddExpenseResponse
+import dk.alfabetacain.axpense.shared.Event
+import dk.alfabetacain.axpense.shared.GetCategoriesResponse
+import dk.alfabetacain.axpense.shared.GetExpensesResponse
+import dk.alfabetacain.shared.Api
+import io.circe.syntax.*
+import io.odin.Logger
+import org.http4s.ember.server.EmberServerBuilder
+import sttp.capabilities.fs2.Fs2Streams
+import sttp.model.sse.ServerSentEvent
+import sttp.tapir.server.ServerEndpoint
+import sttp.tapir.server.http4s.Http4sServerInterpreter
+import sttp.tapir.server.http4s.Http4sServerOptions
+import sttp.tapir.server.interceptor.log.DefaultServerLog
+
+import scala.concurrent.duration.*
 
 trait HttpServer {}
 
 object HttpServer {
 
-  def make(db: Db, eventSubscriber: EventSubscriber): Resource[IO, HttpServer] = {
-    val interp = Http4sServerInterpreter[IO]()
+  private def logMaybeExcep(log: Logger[IO])(msg: String, maybeErr: Option[Throwable]): IO[Unit] = maybeErr match {
+    case Some(err) => log.error(msg, err)
+    case None      => log.info(msg)
+  }
+
+  def make(log: Logger[IO], db: Db, eventSubscriber: EventSubscriber): Resource[IO, HttpServer] = {
+    val interp = Http4sServerInterpreter[IO](
+      Http4sServerOptions
+        .customiseInterceptors[IO]
+        .serverLog(DefaultServerLog(
+          doLogWhenReceived = msg => log.info(msg),
+          doLogWhenHandled = logMaybeExcep(log),
+          doLogAllDecodeFailures = logMaybeExcep(log),
+          doLogExceptions = (msg, err) => log.error(msg, err),
+          noLog = IO.unit,
+        )).options,
+    )
 
     val routes = interp.toRoutes(List[ServerEndpoint[Fs2Streams[IO], IO]](
       Api.addExpense.serverLogicSuccess[IO] { request =>
