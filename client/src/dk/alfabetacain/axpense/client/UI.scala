@@ -1,5 +1,6 @@
 package dk.alfabetacain.axpense.client
 
+import scala.scalajs.js.Date as JsDate
 import frontroute.*
 import frontroute.given
 import dk.alfabetacain.axpense.client.Util.*
@@ -102,6 +103,38 @@ object UI {
     )
   }
 
+  private def formatDate(input: JsDate): String = {
+    s"${input.getFullYear()}-${input.getMonth() + 1}-${input.getDate()}"
+  }
+
+  def dateField(date: SignallingRef[IO, JsDate], labelValue: String): Resource[IO, HtmlDivElement[IO]] = {
+    div(
+      cls := "field",
+      label(labelValue, cls := "label"),
+      div(
+        cls := "control",
+        div(
+          input.withSelf { self =>
+            (
+              tpe         := "date",
+              placeholder := "Date",
+              value <-- date.map(formatDate),
+              onChange --> {
+                _.foreach(_ =>
+                  for {
+                    currentValue <- self.value.get
+                    _            <- IO.println(s"Current value = $currentValue (${new JsDate(currentValue)})")
+                    _            <- date.set(new JsDate(currentValue))
+                  } yield (),
+                )
+              },
+            )
+          },
+        ),
+      ),
+    )
+  }
+
   def selectField[A](
       update: A => IO[Unit],
       currentValue: Signal[IO, A],
@@ -148,6 +181,7 @@ object UI {
       labelValue: String,
       placeholderValue: String,
       doAutofocus: Signal[IO, Boolean],
+      id: Option[String] = None,
   ): Resource[IO, HtmlDivElement[IO]] = {
     div(
       cls := "field",
@@ -156,8 +190,9 @@ object UI {
         cls := "control",
         input.withSelf { self =>
           (
-            cls := "input",
-            tpe := iso.tpe,
+            cls    := "input",
+            tpe    := iso.tpe,
+            idAttr := id.getOrElse(""),
             autoFocus <-- doAutofocus,
             value <-- signal.map(iso.to),
             placeholder := placeholderValue,

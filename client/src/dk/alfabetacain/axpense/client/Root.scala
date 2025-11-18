@@ -35,7 +35,6 @@ object Root extends IOWebApp {
           div(
             cls := "cell has-text-centered is-col-span-2",
             span(
-              // cls := "input",
               List(
                 expense.description.getOrElse(""),
                 expense.category,
@@ -97,142 +96,156 @@ object Root extends IOWebApp {
     case None
   }
 
+  private def focusElement(id: String)(using Window[IO]): IO[Unit] = {
+    window.document.getElementById(
+      id,
+    ).flatMap(_.fold(IO.unit) { e =>
+      e.asInstanceOf[HtmlElement[IO]].focus
+    })
+
+  }
+
   private def mobileAddExpense(client: ApiClient, categories: List[Category])(using
       window: Window[IO],
   ): Resource[IO, HtmlElement[IO]] = {
     given StringOptionalIso[Double] = StringOptionalIso.instance("number", _.toDoubleOption, _.toString)
-    (
-      makeSigRef(""),
-      makeSigRef(Option.empty[SelectedCategory]),
-      makeSigRef(0.0),
-      makeSigRef(AddExpenseEditing.Amount),
-    ).tupled.flatMap { case (description, selectedCat, amount, editingCat) =>
-      div(
-        cls := "container",
-        form(
-          UI.textField(amount, "amount", "amount"),
-          div(
-            cls := "field",
-            label("Category"),
-            autoFocus <-- editingCat.map {
-              case _: AddExpenseEditing.Category => true
-              case _                             => false
-            },
+    clock.realTimeDate.toResource.flatMap { now =>
+      (
+        makeSigRef(""),
+        makeSigRef(Option.empty[SelectedCategory]),
+        makeSigRef(0.0),
+        makeSigRef(AddExpenseEditing.Amount),
+        makeSigRef(now),
+      ).tupled.flatMap { case (description, selectedCat, amount, editingCat, selectedDate) =>
+        div(
+          cls := "container",
+          form(
+            UI.dateField(selectedDate, "date"),
+            UI.textField(amount, "amount", "amount"),
+            div(
+              cls := "field",
+              label("Category"),
+              autoFocus <-- editingCat.map {
+                case _: AddExpenseEditing.Category => true
+                case _                             => false
+              },
+              div(
+                cls := "control",
+                input(
+                  cls := "input",
+                  tpe := "text",
+                  value <-- selectedCat.map(_.map(_.render)),
+                  readOnly := true,
+                  onClick --> {
+                    _.foreach(_ => editingCat.set(AddExpenseEditing.Category(CategoryEditing.EditingCategory)))
+                  },
+                ),
+              ),
+            ),
+            UI.textField2(
+              description,
+              "Note",
+              "note",
+              editingCat.map {
+                case AddExpenseEditing.Note => true
+                case _                      => false
+              },
+              id = Some("note"),
+            ),
+            div(
+              children <-- editingCat.map {
+                case AddExpenseEditing.Note                                      => List.empty
+                case AddExpenseEditing.Amount                                    => List.empty
+                case AddExpenseEditing.None                                      => List.empty
+                case AddExpenseEditing.Category(CategoryEditing.EditingCategory) => List(
+                    div(
+                      cls := "grid box",
+                      categories.map { cat =>
+                        div(
+                          cls := "cell button",
+                          cat.name,
+                          onClick --> {
+                            _.foreach(_ =>
+                              for {
+                                isDone <- selectedCat.modify {
+                                  case Some(current) if current.category.name == cat.name =>
+                                    (Some(current), false)
+                                  case _ => (Some(SelectedCategory(cat, None)), true)
+                                }
+                                _ <- if (cat.subCategories.nonEmpty) {
+                                  editingCat.set(AddExpenseEditing.Category(CategoryEditing.EditingSubCategory(cat)))
+                                } else {
+                                  editingCat.set(AddExpenseEditing.Note) >>
+                                    focusElement("note")
+
+                                }
+                              } yield (),
+                            )
+                          },
+                        )
+                      },
+                    ),
+                  )
+                case AddExpenseEditing.Category(CategoryEditing.EditingSubCategory(cat)) =>
+                  List(
+                    div(
+                      cls := "grid box",
+                      cat.subCategories.map { sub =>
+                        div(
+                          cls := "cell button",
+                          sub,
+                          onClick --> {
+                            _.foreach(_ =>
+                              for {
+                                _ <- selectedCat.set(Some(SelectedCategory(cat, Some(sub))))
+                                _ <-
+                                  editingCat.set(AddExpenseEditing.Note)
+                                _ <-
+                                  focusElement("note")
+
+                              } yield (),
+                            )
+                          },
+                        )
+                      },
+                    ),
+                  )
+              },
+            ),
             div(
               cls := "control",
               input(
-                cls := "input",
-                tpe := "text",
-                value <-- selectedCat.map(_.map(_.render)),
-                readOnly := true,
-                onClick --> {
-                  _.foreach(_ => editingCat.set(AddExpenseEditing.Category(CategoryEditing.EditingCategory)))
-                },
+                tpe := "submit",
+                cls := "button is-link",
+                "Submit",
               ),
             ),
-          ),
-          UI.textField2(
-            description,
-            "Note",
-            "note",
-            editingCat.map {
-              case AddExpenseEditing.Note => true
-              case _                      => false
+            action := "javascript:void(0);",
+            onSubmit --> { event =>
+              event.foreach { _ =>
+                for {
+                  desc         <- description.get
+                  selectedCats <- selectedCat.get
+                  am           <- amount.get
+                  date         <- selectedDate.get
+                  _            <- client.addExpense(
+                    Expense(
+                      Option(desc).filter(_.nonEmpty),
+                      selectedCats.fold("")(_.category.name),
+                      selectedCats.fold("")(_.sub.getOrElse("")),
+                      Amount(BigDecimal(am), "DKK"),
+                      Date(date.toISOString()),
+                    ),
+                  )
+                } yield ()
+              }
             },
           ),
-          div(
-            children <-- editingCat.map {
-              case AddExpenseEditing.Note                                      => List.empty
-              case AddExpenseEditing.Amount                                    => List.empty
-              case AddExpenseEditing.None                                      => List.empty
-              case AddExpenseEditing.Category(CategoryEditing.EditingCategory) => List(
-                  div(
-                    cls := "grid box",
-                    categories.map { cat =>
-                      div(
-                        cls := "cell button",
-                        cat.name,
-                        onClick --> {
-                          _.foreach(_ =>
-                            for {
-                              _ <- selectedCat.update {
-                                case Some(current) if current.category.name == cat.name =>
-                                  Some(current)
-                                case _ => Some(SelectedCategory(cat, None))
-                              }
-                              _ <- if (cat.subCategories.nonEmpty) {
-                                editingCat.set(AddExpenseEditing.Category(CategoryEditing.EditingSubCategory(cat)))
-                              } else {
-                                editingCat.set(AddExpenseEditing.Note)
-                              }
-                              /*
-                              _ <- window.document.getElementById(
-                                "note",
-                                ).map(_.fold(IO.unit)(e => HtmlElement.ops()e.asInstanceOf[HtmlElement[IO]].focus()))
-                               */
-                            } yield (),
-                          )
-                        },
-                      )
-                    },
-                  ),
-                )
-              case AddExpenseEditing.Category(CategoryEditing.EditingSubCategory(cat)) =>
-                List(
-                  div(
-                    cls := "grid box",
-                    cat.subCategories.map { sub =>
-                      div(
-                        cls := "cell button",
-                        sub,
-                        onClick --> {
-                          _.foreach(_ =>
-                            for {
-                              _ <- selectedCat.set(Some(SelectedCategory(cat, Some(sub))))
-                              _ <-
-                                editingCat.set(AddExpenseEditing.Note)
-                            } yield (),
-                          )
-                        },
-                      )
-                    },
-                  ),
-                )
-            },
-          ),
-          div(
-            cls := "control",
-            input(
-              tpe := "submit",
-              cls := "button is-link",
-              "Submit",
-            ),
-          ),
-          action := "javascript:void(0);",
-          onSubmit --> { event =>
-            event.foreach { _ =>
-              for {
-                desc         <- description.get
-                selectedCats <- selectedCat.get
-                am           <- amount.get
-                now          <- clock.realTimeDate
-                _            <- client.addExpense(
-                  Expense(
-                    Option(desc).filter(_.nonEmpty),
-                    selectedCats.fold("")(_.category.name),
-                    selectedCats.fold("")(_.sub.getOrElse("")),
-                    Amount(BigDecimal(am), "DKK"),
-                    Date(now.toISOString()),
-                  ),
-                )
-              } yield ()
-            }
-          },
-        ),
-      )
+        )
+
+      }
 
     }
-
   }
 
   private def myForm(client: ApiClient, categories: List[Category]): Resource[IO, HtmlElement[IO]] = {
